@@ -1,2 +1,1 @@
-1.启动flask:执行flask根目录下的app.py文件， python app.py.http://127.0.0.1:5000
-2.启动react:react 根目录 ，npm run dev,http://localhost:5173/
+项目的安装、配置、启动和运行说明请统一阅读根目录的 README.md。

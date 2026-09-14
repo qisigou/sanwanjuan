@@ -1,12 +1,41 @@
-# React + Vite
+# 三万卷前端
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+三万卷的 React 前端，使用 React 19、TypeScript、Vite 和 EPUB.js 构建。
 
-Currently, two official plugins are available:
+## 启动
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+```bash
+npm ci
+npm run dev
+```
 
-## Expanding the ESLint configuration
+默认访问地址：
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```text
+http://localhost:5173/
+```
+
+## 后端接口配置
+
+编辑：
+
+```text
+public/变量配置.js
+```
+
+将 `API_BASE_URL` 设置为 Flask 后端地址。默认值为：
+
+```javascript
+window.__APP_CONFIG__ = {
+  API_BASE_URL: 'http://127.0.0.1:5001/api'
+};
+```
+
+## 构建
+
+```bash
+npm run lint
+npm run build
+```
+
+完整的安装、配置和项目说明请阅读根目录的 [`README.md`](../README.md)。
