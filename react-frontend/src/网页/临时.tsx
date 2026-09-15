@@ -153,7 +153,7 @@ const 临时: React.FC = () => {
       const 格式大写 = String(cell || '').toUpperCase();
       const 打开链接 = 格式大写 === 'EPUB'
         ? `/epub_reader/${idValue}`
-        : `${API_BASE}/search-id?bookID=${idValue}`;
+        : `/pdf_reader/${idValue}`;
       return (
         <a 
           href={打开链接} 

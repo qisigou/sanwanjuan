@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import JSZip from 'jszip';
+import AI图书助手 from './AI图书助手';
 
 const API_BASE = window.__APP_CONFIG__.API_BASE_URL;
 
@@ -1304,7 +1305,7 @@ const Epub阅读器: React.FC = () => {
         </div>
       </div>
 
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div style={{ position: 'relative', display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <div style={{
           width: '250px',
           backgroundColor: '#f9f9f9',
@@ -1333,6 +1334,7 @@ const Epub阅读器: React.FC = () => {
           onClick={处理_正文点击}
           style={{
             flex: 1,
+            minWidth: 0,
             padding: '40px',
             overflow: 'auto',
             backgroundColor: '#fefefe',
@@ -1341,6 +1343,7 @@ const Epub阅读器: React.FC = () => {
           }}
           dangerouslySetInnerHTML={{ __html: 章节内容 }}
         ></div>
+        <AI图书助手 bookID={Number(bookID || 0)} 页面类型="EPUB" 阅读区引用={阅读区引用} />
       </div>
     </div>
   );

@@ -26,9 +26,12 @@ from api import api_bp
     'clc': '中图法',
     'tags': '标签',
     'language': '文本语言',
+    'ai_score': 'ai评分',
+    'ai_assessment_status': 'ai评估状态码',
+    'ai_evaluation': 'ai评估',
 }
 
-整数字段 = {'publication_year', 'edition'}
+整数字段 = {'publication_year', 'edition', 'ai_score', 'ai_assessment_status'}
 
 查询字段 = '''
     id,
@@ -43,6 +46,9 @@ from api import api_bp
     中图法 AS clc,
     标签 AS tags,
     文本语言 AS language,
+    ai评分 AS ai_score,
+    ai评估状态码 AS ai_assessment_status,
+    ai评估 AS ai_evaluation,
     文件格式 AS file_format,
     存储位置 AS storage_location,
     存储文件名 AS storage_file_name,
@@ -176,6 +182,12 @@ def 更新_图书信息(book_id):
                         'success': False,
                         'error': f'{英文字段} 必须是整数或空值',
                     }), 400
+
+        if 英文字段 == 'ai_score' and 值 is not None and not 1 <= 值 <= 5:
+            return jsonify({
+                'success': False,
+                'error': 'ai_score 必须在 1 到 5 之间',
+            }), 400
 
         更新字段.append(f'{中文字段} = ?')
         参数.append(值)

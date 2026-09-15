@@ -10,6 +10,7 @@ import 修改图书页面 from './网页/修改图书';
 import 网页头 from './组件/顶栏';
 import 网页脚 from './组件/底栏';
 import Epub阅读器 from './组件/Epub阅读器';
+import Pdf阅读器 from './组件/Pdf阅读器';
 import 学科统计表 from './组件/学科统计表';
 
 const queryClient = new QueryClient({
@@ -24,7 +25,7 @@ const queryClient = new QueryClient({
 // 创建一个布局包装器组件
 const LayoutWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
-  const isReaderRoute = location.pathname.startsWith('/epub_reader/');
+  const isReaderRoute = location.pathname.startsWith('/epub_reader/') || location.pathname.startsWith('/pdf_reader/');
   
   // 如果是阅读器路由，不显示顶栏和底栏
   if (isReaderRoute) {
@@ -49,6 +50,11 @@ const App: React.FC = () => {
           <Route path="/epub_reader/:bookID" element={
             <div style={{ height: '100vh', width: '100vw' }}>
               <Epub阅读器 />
+            </div>
+          } />
+          <Route path="/pdf_reader/:bookID" element={
+            <div style={{ height: '100vh', width: '100vw' }}>
+              <Pdf阅读器 />
             </div>
           } />
           <Route path="*" element={

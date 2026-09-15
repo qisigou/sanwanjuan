@@ -91,7 +91,7 @@ const 构建阅读链接 = (图书: 图书信息): string => {
   if ((图书.file_format || '').toUpperCase() === 'EPUB') {
     return `/epub_reader/${图书.id}`;
   }
-  return `${API_BASE}/search-id?bookID=${图书.id}`;
+  return `/pdf_reader/${图书.id}`;
 };
 
 

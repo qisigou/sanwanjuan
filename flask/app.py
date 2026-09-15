@@ -24,6 +24,33 @@ def 修复_书籍入库时间触发器(数据库地址):
             连接.close()
 
 
+def 确保_AI字段(数据库地址):
+    """兼容旧数据库，自动补充 AI 评分和评估字段"""
+    连接 = None
+    try:
+        连接 = sqlite3.connect(数据库地址)
+        with 连接:
+            表存在 = 连接.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='书籍'"
+            ).fetchone()
+            if not 表存在:
+                return
+            已有字段 = {
+                行[1] for 行 in 连接.execute('PRAGMA table_info(书籍)').fetchall()
+            }
+            if 'ai评分' not in 已有字段:
+                连接.execute('ALTER TABLE 书籍 ADD COLUMN ai评分 TINYINT')
+            if 'ai评估状态码' not in 已有字段:
+                连接.execute('ALTER TABLE 书籍 ADD COLUMN ai评估状态码 TINYINT')
+            if 'ai评估' not in 已有字段:
+                连接.execute('ALTER TABLE 书籍 ADD COLUMN ai评估 TEXT')
+    except sqlite3.Error as 错误:
+        print(f"补充 AI 字段失败: {错误}")
+    finally:
+        if 连接 is not None:
+            连接.close()
+
+
 def 加载_配置文件(app):
     config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '配置.json')
     try:
@@ -39,7 +66,15 @@ def 加载_配置文件(app):
         app.config['封面目录'] = config['资源']['图书资源']['封面存储位置']
         app.config['临时文件夹'] = config['资源']['临时文件夹']
         app.config['数据库文件'] = config['资源'].get('数据库文件', '元数据.db')
-        
+        app.config['大语言模型'] = config.get('大语言模型', {})
+        app.config['提示词目录'] = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            '提示词',
+        )
+        app.config['MAX_CONTENT_LENGTH'] = int(
+            app.config['大语言模型'].get('最大请求字节') or 32 * 1024 * 1024
+        )
+
         # 加载服务器配置（增加默认值）
         app.config['服务器地址'] = config.get('服务器', {}).get('地址', '0.0.0.0')
         app.config['服务器端口'] = config.get('服务器', {}).get('端口', 5000)
@@ -55,6 +90,9 @@ def 加载_配置文件(app):
         app.config['封面目录'] = "D:/封面图"
         app.config['临时文件夹'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), '临时文件')
         app.config['数据库文件'] = '元数据.db'
+        app.config['大语言模型'] = {}
+        app.config['提示词目录'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), '提示词')
+        app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
         app.config['服务器地址'] = '0.0.0.0'
         app.config['服务器端口'] = 5000
         app.config['排障模式'] = False
@@ -64,6 +102,9 @@ def 加载_配置文件(app):
         app.config['封面目录'] = "D:/封面图"
         app.config['临时文件夹'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), '临时文件')
         app.config['数据库文件'] = '元数据.db'
+        app.config['大语言模型'] = {}
+        app.config['提示词目录'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), '提示词')
+        app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
         app.config['服务器地址'] = '0.0.0.0'
         app.config['服务器端口'] = 5000
         app.config['排障模式'] = False
@@ -83,6 +124,7 @@ def 创建_应用():
     app.config['根目录'] = 根目录
     app.config['数据库地址'] = os.path.join(app.config['根目录'], app.config['数据库文件'])
     修复_书籍入库时间触发器(app.config['数据库地址'])
+    确保_AI字段(app.config['数据库地址'])
     return app
 
 app = 创建_应用()

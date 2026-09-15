@@ -19,7 +19,7 @@ const 构建_打开链接 = (item: 搜索结果元项): string => {
   if (格式 === 'EPUB') {
     return `/epub_reader/${item.id}`;
   }
-  return `${API_BASE}/search-id?bookID=${item.id}`;
+  return `/pdf_reader/${item.id}`;
 };
 
 // 固定表头高度，避免内容变化导致页面重新布局
