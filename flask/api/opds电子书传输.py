@@ -128,6 +128,26 @@ def 获取_分页参数():
     return 页码, 每页
 
 
+def 获取_检索关键词():
+    """兼容常见 OPDS 客户端使用的检索参数名"""
+    for 参数名 in ('q', 'query', 'searchTerms', 'searchTerm', 'search', 'keyword'):
+        参数值 = request.args.get(参数名, '').strip()
+        if 参数值:
+            return ' '.join(参数值.split())
+    return ''
+
+
+def 构建_检索条件(关键词):
+    """按空白拆分关键词，每个词都需命中书名、作者或出版社"""
+    条件列表 = []
+    参数列表 = []
+    for 词语 in 关键词.split():
+        模式 = f'%{词语}%'
+        条件列表.append('(书名 LIKE ? OR 作者 LIKE ? OR 出版社 LIKE ?)')
+        参数列表.extend([模式, 模式, 模式])
+    return ' AND '.join(条件列表), 参数列表
+
+
 def 生成_链接(关系, 地址, 类型值):
     """生成一个 Atom link 元素"""
     return (f'    <link rel={转义_属性(关系)} href={转义_属性(地址)} '
@@ -135,10 +155,9 @@ def 生成_链接(关系, 地址, 类型值):
 
 
 def 生成_检索链接列表(根地址):
-    """生成 OpenSearch 描述与服务端检索模板链接"""
+    """生成 OpenSearch 描述链接，检索模板由描述文档统一声明"""
     return [
         ('search', f'{根地址}/api/opds/opensearch.xml', OPENSEARCH_MIME),
-        ('search', f'{根地址}/api/opds/search?q={{searchTerms}}', 获取目录MIME),
     ]
 
 
@@ -330,12 +349,7 @@ def opds_全部图书():
 @api_bp.route('/opds/search/')
 def opds_检索():
     """按书名 / 作者 / 出版社检索图书"""
-    关键词 = ''
-    for 参数名 in ('q', 'query', 'searchTerms'):
-        参数值 = request.args.get(参数名, '').strip()
-        if 参数值:
-            关键词 = 参数值
-            break
+    关键词 = 获取_检索关键词()
     页码, 每页 = 获取_分页参数()
     根地址 = 获取_站点根地址()
     路径 = f'{根地址}/api/opds/search'
@@ -355,9 +369,10 @@ def opds_检索():
             获取目录MIME
         )
 
+    检索条件, 检索参数 = 构建_检索条件(关键词)
     where语句 = ("(存储状态 = ? OR COALESCE(TRIM(存储状态), '') = '') "
-                 "AND (书名 LIKE ? OR 作者 LIKE ? OR 出版社 LIKE ?)")
-    参数 = ['正常', f'%{关键词}%', f'%{关键词}%', f'%{关键词}%']
+                 f"AND {检索条件}")
+    参数 = ['正常', *检索参数]
 
     总数, 行列表 = 查询_图书列表(where语句, 参数, 页码, 每页)
     总页数 = max(1, (总数 + 每页 - 1) // 每页)
