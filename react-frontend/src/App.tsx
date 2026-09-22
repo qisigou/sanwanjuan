@@ -22,10 +22,30 @@ const queryClient = new QueryClient({
   },
 });
 
+const 页面标题映射: Record<string, string> = {
+  '/': '人生三万册',
+  '/about': '关于',
+  '/sou': '搜索结果',
+  '/c': '高级SQL',
+  '/zhongtufa': '中图法',
+  '/shangchuan': '上传文件',
+  '/xiugai': '图书信息维护',
+  '/shudan': '书单',
+};
+
+const 获取_页面标题 = (路径: string): string => {
+  const 标准路径 = 路径.replace(/\/+$/, '') || '/';
+  return 页面标题映射[标准路径] || '人生三万册';
+};
+
 // 创建一个布局包装器组件
 const LayoutWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const isReaderRoute = location.pathname.startsWith('/epub_reader/') || location.pathname.startsWith('/pdf_reader/');
+
+  React.useEffect(() => {
+    document.title = 获取_页面标题(location.pathname);
+  }, [location.pathname]);
   
   // 如果是阅读器路由，不显示顶栏和底栏
   if (isReaderRoute) {

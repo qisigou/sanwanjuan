@@ -463,6 +463,26 @@ const 获取_目录路径序列 = (目录: 目录项[]): string[] => {
   ]);
 };
 
+const 是否_前置页面标题 = (标题: string): boolean => {
+  const 紧凑标题 = 标题.replace(/\s+/g, '').toLowerCase();
+  return /^(?:封面|封面页|扉页|书名页|版权页?|版权信息|目录|目次|contents?)$/.test(紧凑标题);
+};
+
+const 查找_首个正文链接 = (目录: 目录项[]): string => {
+  for (const 项目 of 目录) {
+    const { 路径 } = 拆分_链接(项目.链接);
+    if (路径 && !是否_前置页面标题(项目.标题)) return 项目.链接;
+
+    const 子项链接 = 查找_首个正文链接(项目.子项 || []);
+    if (子项链接) return 子项链接;
+  }
+  return '';
+};
+
+const 获取_目录跳转链接 = (项目: 目录项): string => {
+  return 查找_首个正文链接(项目.子项 || []) || 项目.链接;
+};
+
 const 目录顺序符合正文章节 = (
   目录: 目录项[],
   章节顺序: string[]
@@ -743,6 +763,9 @@ const 解析_全部目录 = async (
   const HTML标签有效率 = HTML目录.length > 0
     ? HTML有效标签数 / HTML目录.length
     : 0;
+  const NCX节点数 = 统计_目录节点数(NCX目录);
+  const HTML节点数 = 统计_目录节点数(HTML目录);
+  const NCX目录更完整 = NCX顺序正常 && NCX节点数 > HTML节点数;
   const 指南HTML可信 = HTML目录.length > 0
     && HTML顺序正常
     && HTML目录.length <= Math.max(30, 章节顺序.length * 2)
@@ -750,15 +773,15 @@ const 解析_全部目录 = async (
 
   let 选定目录: 目录项[];
   if (属性导航项) {
-    选定目录 = HTML目录.length > 0 ? HTML目录 : NCX目录;
+    选定目录 = HTML目录.length > 0 && !NCX目录更完整 ? HTML目录 : NCX目录;
   } else if (指南目录项) {
-    选定目录 = 指南HTML可信
+    选定目录 = 指南HTML可信 && !NCX目录更完整
       ? HTML目录
       : NCX目录.length > 0
         ? NCX目录
         : HTML目录;
   } else {
-    选定目录 = 统计_目录节点数(NCX目录) > 统计_目录节点数(HTML目录)
+    选定目录 = NCX节点数 > HTML节点数
       ? NCX目录
       : HTML目录;
   }
@@ -807,6 +830,32 @@ const 创建_资源映射 = async (
     }
   }
   return 映射;
+};
+
+const 提取_正文结构 = (文档: Document): string => {
+  const 正文元素 = 文档.body;
+  if (!正文元素) return 文档.documentElement?.outerHTML || '';
+
+  const 正文容器 = 文档.createElement('div');
+  Array.from(正文元素.attributes).forEach((属性) => {
+    正文容器.setAttribute(属性.name, 属性.value);
+  });
+  正文容器.setAttribute('data-epub-body', 'true');
+
+  while (正文元素.firstChild) {
+    正文容器.appendChild(正文元素.firstChild);
+  }
+
+  const 头部样式 = 文档.head
+    ? Array.from(文档.head.children).filter((元素) => {
+      const 名称 = 获取_本地名称(元素);
+      if (名称 === 'style') return true;
+      return 名称 === 'link'
+        && /(?:^|\s)stylesheet(?:\s|$)/i.test(元素.getAttribute('rel') || '');
+    })
+    : [];
+
+  return `${头部样式.map((元素) => 元素.outerHTML).join('')}${正文容器.outerHTML}`;
 };
 
 const 处理_HTML内容 = (
@@ -880,7 +929,7 @@ const 处理_HTML内容 = (
     if (资源地址) 链接.setAttribute('href', 资源地址);
   });
 
-  return 文档.documentElement.outerHTML;
+  return 提取_正文结构(文档);
 };
 
 interface 目录节点列表属性 {
@@ -899,14 +948,15 @@ const 目录节点列表: React.FC<目录节点列表属性> = ({
   return (
     <ul style={{ listStyle: 'none', padding: 0, margin: 层级 === 0 ? 0 : '4px 0 0' }}>
       {项目列表.map((项目, 索引) => {
-        const { 路径 } = 拆分_链接(项目.链接);
+        const 跳转链接 = 获取_目录跳转链接(项目);
+        const { 路径 } = 拆分_链接(跳转链接);
         const 是否当前章节 = Boolean(路径) && 获取_路径键(路径) === 当前章节键;
         return (
           <li key={项目.标识 || `${层级}-${索引}`}>
             <button
-              onClick={() => 选择目录(项目.链接)}
+              onClick={() => 选择目录(跳转链接)}
               title={项目.标题}
-              disabled={!项目.链接}
+              disabled={!跳转链接}
               aria-current={是否当前章节 ? 'page' : undefined}
               style={{
                 width: '100%',
@@ -914,14 +964,14 @@ const 目录节点列表: React.FC<目录节点列表属性> = ({
                 padding: `7px 6px 7px ${6 + 层级 * 13}px`,
                 background: 是否当前章节 ? '#e3eef9' : 'transparent',
                 border: 'none',
-                cursor: 项目.链接 ? 'pointer' : 'default',
+                cursor: 跳转链接 ? 'pointer' : 'default',
                 color: 是否当前章节 ? '#1a73e8' : '#555',
                 fontWeight: 是否当前章节 ? 600 : 400,
                 borderRadius: '3px',
                 transition: 'background-color 0.2s ease'
               }}
               onMouseOver={(事件) => {
-                if (!是否当前章节 && 项目.链接) 事件.currentTarget.style.backgroundColor = '#eee';
+                if (!是否当前章节 && 跳转链接) 事件.currentTarget.style.backgroundColor = '#eee';
               }}
               onMouseOut={(事件) => {
                 if (!是否当前章节) 事件.currentTarget.style.backgroundColor = 'transparent';
@@ -1091,7 +1141,13 @@ const Epub阅读器: React.FC = () => {
       资源映射引用.current = 资源映射;
       资源地址引用.current = Array.from(资源映射.values());
 
-      const 首章加载成功 = await 加载_章节内容(章节顺序[0]);
+      const 目录首章路径 = 查找_可用章节路径(查找_首个正文链接(EPUB目录));
+      const 非封面章节路径 = 章节顺序.find(
+        (路径) => !/(?:^|\/)(?:titlepage|cover|toc)(?:\.|$)/i.test(路径)
+      );
+      const 首章路径 = 目录首章路径 || 非封面章节路径 || 章节顺序[0];
+
+      const 首章加载成功 = await 加载_章节内容(首章路径);
       if (!首章加载成功) throw new Error('首章内容无法读取');
       if (当前轮次 !== 加载轮次引用.current) return;
 
@@ -1243,6 +1299,25 @@ const Epub阅读器: React.FC = () => {
       height: '100vh',
       fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
     }}>
+      <style>{`
+        [data-epub-body] {
+          min-height: 100%;
+        }
+
+        [data-epub-body] svg {
+          display: block;
+          width: 100%;
+          max-width: 100%;
+          height: auto;
+          max-height: calc(100vh - 80px);
+          margin: 0 auto;
+        }
+
+        [data-epub-body] img {
+          max-width: 100%;
+          height: auto;
+        }
+      `}</style>
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',

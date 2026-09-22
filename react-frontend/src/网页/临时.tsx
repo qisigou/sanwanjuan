@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import axios from 'axios';
 
 const API_BASE = window.__APP_CONFIG__.API_BASE_URL; // 来自 /src/类型定义/全局变量.d.ts
@@ -19,10 +19,6 @@ const 临时: React.FC = () => {
 
   // 新增：控制单元格展开/折叠的状态
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    document.title = '高级SQL';
-  }, []);
 
   const executeQuery = async (sqlText: string, page: number = 1) => {
     const response = await axios.post(`${API_BASE}/query`, { 

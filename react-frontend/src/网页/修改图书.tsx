@@ -122,10 +122,6 @@ const 修改图书: React.FC = () => {
   const [保存中, set保存中] = useState(false);
   const [弹窗错误, set弹窗错误] = useState('');
 
-  useEffect(() => {
-    document.title = '图书信息维护';
-  }, []);
-
   const 加载图书列表 = async (目标页码 = 页码, 目标ID = 查询ID) => {
     set加载中(true);
     set页面错误('');

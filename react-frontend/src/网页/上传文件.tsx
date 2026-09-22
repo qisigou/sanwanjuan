@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import axios from 'axios';
 
 const API_BASE = window.__APP_CONFIG__.API_BASE_URL;
@@ -74,10 +74,6 @@ const 上传文件: React.FC = () => {
   const [保存失败列表, set保存失败列表] = useState<保存失败结果[]>([]);
   const 文件输入 = useRef<HTMLInputElement>(null);
   const 正在处理 = 正在上传 || 正在扫描;
-
-  useEffect(() => {
-    document.title = '上传文件';
-  }, []);
 
   const 清空反馈 = () => {
     set提示信息('');
