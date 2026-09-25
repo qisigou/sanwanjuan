@@ -7,7 +7,7 @@ import { 搜索响应, 搜索结果元项 } from '../类型定义';
 import 详情表单 from '../组件/详情表单';
 
 const API_BASE = window.__APP_CONFIG__.API_BASE_URL;
-const 搜索请求后端地址 = `${API_BASE}/search-name`;
+const 搜索请求后端地址 = `${API_BASE}/search-all`;
 const 搜索结果: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   
