@@ -29,7 +29,27 @@ interface 目录项 {
   子项?: 目录项[];
 }
 
+interface 章节文本缓存项 {
+  路径: string;
+  标题: string;
+  正文: string;
+}
+
+interface 全文检索结果 {
+  标识: string;
+  章节路径: string;
+  章节标题: string;
+  关键词: string;
+  匹配序号: number;
+  匹配位置: number;
+  匹配长度: number;
+  片段: string;
+  片段匹配起点: number;
+}
+
 type 资源映射 = Map<string, string>;
+
+const 最大搜索结果数 = 300;
 
 const 获取_本地名称 = (元素: Element): string => {
   const 原始名称 = 元素.localName || 元素.tagName || '';
@@ -177,6 +197,203 @@ const 解析_HTML文档 = (内容: string): Document => {
 
 const 获取_元素文本 = (元素: Element | null): string => {
   return (元素?.textContent || '').replace(/\s+/g, ' ').trim();
+};
+
+const 是否_非正文元素 = (元素: Element): boolean => {
+  return ['script', 'style', 'noscript', 'template'].includes(获取_本地名称(元素));
+};
+
+const 获取_可检索文本节点列表 = (根节点: Node): Text[] => {
+  const 所属文档 = 根节点.nodeType === Node.DOCUMENT_NODE
+    ? 根节点 as Document
+    : 根节点.ownerDocument;
+  if (!所属文档) return [];
+
+  const 文本节点列表: Text[] = [];
+  const 遍历器 = 所属文档.createTreeWalker(
+    根节点,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode: (节点) => {
+        let 父元素 = (节点 as Text).parentElement;
+        while (父元素) {
+          if (是否_非正文元素(父元素)) return NodeFilter.FILTER_REJECT;
+          父元素 = 父元素.parentElement;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    }
+  );
+
+  let 当前节点 = 遍历器.nextNode();
+  while (当前节点) {
+    文本节点列表.push(当前节点 as Text);
+    当前节点 = 遍历器.nextNode();
+  }
+  return 文本节点列表;
+};
+
+const 提取_可检索文本 = (根节点: Node): string => {
+  return 获取_可检索文本节点列表(根节点)
+    .map((文本节点) => 文本节点.data)
+    .join('');
+};
+
+const 提取_章节正文 = (HTML内容: string): string => {
+  const 文档 = 解析_HTML文档(HTML内容);
+  return 提取_可检索文本(文档.body || 文档.documentElement || 文档);
+};
+
+const 转义_正则文本 = (文本: string): string => {
+  return 文本.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+const 创建_搜索正则 = (关键词: string): RegExp => {
+  return new RegExp(转义_正则文本(关键词), 'gi');
+};
+
+const 创建_目录标题映射 = (目录: 目录项[]): Map<string, string> => {
+  const 标题映射 = new Map<string, string>();
+
+  const 收集标题 = (项目列表: 目录项[]) => {
+    项目列表.forEach((项目) => {
+      const { 路径 } = 拆分_链接(项目.链接);
+      if (路径) {
+        const 路径键 = 获取_路径键(路径);
+        if (!标题映射.has(路径键) && 项目.标题) 标题映射.set(路径键, 项目.标题);
+      }
+      if (项目.子项?.length) 收集标题(项目.子项);
+    });
+  };
+
+  收集标题(目录);
+  return 标题映射;
+};
+
+const 获取_缓存章节标题 = (
+  章节路径: string,
+  标题映射: Map<string, string>
+): string => {
+  const 目录标题 = 标题映射.get(获取_路径键(章节路径));
+  if (目录标题) return 目录标题;
+
+  const 文件名 = 章节路径.split('/').pop() || 章节路径;
+  return 文件名.replace(/\.[^.]+$/, '') || '未命名章节';
+};
+
+const 创建_搜索片段 = (
+  正文: string,
+  匹配位置: number,
+  匹配长度: number
+): { 片段: string; 片段匹配起点: number } => {
+  const 前文长度 = 36;
+  const 后文长度 = 54;
+  const 原始起点 = Math.max(0, 匹配位置 - 前文长度);
+  const 原始终点 = Math.min(正文.length, 匹配位置 + 匹配长度 + 后文长度);
+  const 片段正文 = 正文.slice(原始起点, 原始终点).replace(/\s+/g, ' ');
+  const 前省略号 = 原始起点 > 0 ? '…' : '';
+  const 后省略号 = 原始终点 < 正文.length ? '…' : '';
+  const 片段匹配起点 = 前省略号.length
+    + 正文.slice(原始起点, 匹配位置).replace(/\s+/g, ' ').length;
+  return {
+    片段: `${前省略号}${片段正文}${后省略号}`,
+    片段匹配起点
+  };
+};
+
+interface 文本节点范围 {
+  节点: Text;
+  起点: number;
+  终点: number;
+}
+
+const 创建_文本节点范围 = (文本节点列表: Text[]): 文本节点范围[] => {
+  let 当前偏移 = 0;
+  return 文本节点列表.map((节点) => {
+    const 起点 = 当前偏移;
+    当前偏移 += 节点.data.length;
+    return { 节点, 起点, 终点: 当前偏移 };
+  });
+};
+
+const 清除_搜索高亮 = (阅读区: HTMLElement) => {
+  const 高亮元素列表 = Array.from(
+    阅读区.querySelectorAll<HTMLElement>('mark[data-epub-search="true"]')
+  );
+  高亮元素列表.forEach((高亮元素) => {
+    const 父节点 = 高亮元素.parentNode;
+    if (!父节点) return;
+    父节点.replaceChild(
+      阅读区.ownerDocument.createTextNode(高亮元素.textContent || ''),
+      高亮元素
+    );
+  });
+  if (高亮元素列表.length > 0) 阅读区.normalize();
+};
+
+const 定位_搜索结果 = (
+  阅读区: HTMLElement,
+  搜索结果: 全文检索结果
+): boolean => {
+  const 文本节点列表 = 获取_可检索文本节点列表(阅读区);
+  const 全文 = 文本节点列表.map((节点) => 节点.data).join('');
+  const 正则 = 创建_搜索正则(搜索结果.关键词);
+
+  let 当前匹配序号 = 0;
+  let 匹配起点 = -1;
+  let 匹配长度 = 0;
+  let 匹配结果 = 正则.exec(全文);
+  while (匹配结果) {
+    if (当前匹配序号 === 搜索结果.匹配序号) {
+      匹配起点 = 匹配结果.index;
+      匹配长度 = 匹配结果[0].length;
+      break;
+    }
+    当前匹配序号 += 1;
+    if (匹配结果[0].length === 0) 正则.lastIndex += 1;
+    匹配结果 = 正则.exec(全文);
+  }
+  if (匹配起点 < 0 || 匹配长度 <= 0) return false;
+
+  const 匹配终点 = 匹配起点 + 匹配长度;
+  const 相交范围列表 = 创建_文本节点范围(文本节点列表)
+    .filter((范围) => Math.max(匹配起点, 范围.起点) < Math.min(匹配终点, 范围.终点))
+    .reverse();
+  const 文档 = 阅读区.ownerDocument;
+
+  相交范围列表.forEach((范围) => {
+    const 局部起点 = Math.max(匹配起点, 范围.起点) - 范围.起点;
+    const 局部终点 = Math.min(匹配终点, 范围.终点) - 范围.起点;
+    if (局部起点 >= 局部终点) return;
+
+    let 文本节点 = 范围.节点;
+    if (局部终点 < 文本节点.data.length) 文本节点.splitText(局部终点);
+    const 匹配节点 = 局部起点 > 0 ? 文本节点.splitText(局部起点) : 文本节点;
+
+    const 高亮元素 = 文档.createElement('mark');
+    高亮元素.setAttribute('data-epub-search', 'true');
+    匹配节点.parentNode?.insertBefore(高亮元素, 匹配节点);
+    高亮元素.appendChild(匹配节点);
+  });
+
+  const 首个高亮元素 = 阅读区.querySelector<HTMLElement>('mark[data-epub-search="true"]');
+  if (!首个高亮元素) return false;
+  首个高亮元素.scrollIntoView({ block: 'center' });
+  return true;
+};
+
+const 渲染_搜索片段 = (搜索结果: 全文检索结果): React.ReactNode => {
+  const 匹配起点 = 搜索结果.片段匹配起点;
+  const 匹配终点 = 匹配起点 + 搜索结果.匹配长度;
+  return (
+    <>
+      {搜索结果.片段.slice(0, 匹配起点)}
+      <mark style={{ backgroundColor: '#ffd54f', color: 'inherit', borderRadius: '2px' }}>
+        {搜索结果.片段.slice(匹配起点, 匹配终点)}
+      </mark>
+      {搜索结果.片段.slice(匹配终点)}
+    </>
+  );
 };
 
 const 解析_元数据 = (OPF文档: Document): 电子书元数据 => {
@@ -1005,7 +1222,16 @@ const Epub阅读器: React.FC = () => {
   const [当前章节路径, 设置当前章节路径] = useState<string>('');
   const [字号, 设置字号] = useState<number>(100);
   const [待定位锚点, 设置待定位锚点] = useState<string>('');
+  const [待定位搜索, 设置待定位搜索] = useState<全文检索结果 | null>(null);
   const [定位版本, 设置定位版本] = useState<number>(0);
+  const [侧栏模式, 设置侧栏模式] = useState<'目录' | '搜索'>('目录');
+  const [搜索关键词, 设置搜索关键词] = useState<string>('');
+  const [已提交关键词, 设置已提交关键词] = useState<string>('');
+  const [正在搜索, 设置正在搜索] = useState<boolean>(false);
+  const [搜索结果, 设置搜索结果] = useState<全文检索结果[]>([]);
+  const [搜索结果总数, 设置搜索结果总数] = useState<number>(0);
+  const [索引进度, 设置索引进度] = useState<{ 已完成: number; 总数: number } | null>(null);
+  const [搜索错误, 设置搜索错误] = useState<string | null>(null);
 
   const 阅读区引用 = useRef<HTMLDivElement>(null);
   const 压缩包引用 = useRef<JSZip | null>(null);
@@ -1013,6 +1239,9 @@ const Epub阅读器: React.FC = () => {
   const 资源映射引用 = useRef<资源映射>(new Map());
   const 资源地址引用 = useRef<string[]>([]);
   const 加载轮次引用 = useRef(0);
+  const 章节文本缓存引用 = useRef<章节文本缓存项[] | null>(null);
+  const 索引构建Promise引用 = useRef<Promise<章节文本缓存项[]> | null>(null);
+  const 搜索轮次引用 = useRef(0);
 
   const 释放_资源地址 = useCallback(() => {
     资源地址引用.current.forEach((地址) => URL.revokeObjectURL(地址));
@@ -1029,9 +1258,162 @@ const Epub阅读器: React.FC = () => {
       || '';
   }, []);
 
+  const 确保_章节文本缓存 = useCallback(async (
+    当前加载轮次: number
+  ): Promise<章节文本缓存项[]> => {
+    if (章节文本缓存引用.current) return 章节文本缓存引用.current;
+    if (索引构建Promise引用.current) return 索引构建Promise引用.current;
+
+    const 压缩包 = 压缩包引用.current;
+    const 章节列表 = [...章节路径引用.current];
+    if (!压缩包 || 章节列表.length === 0) return [];
+
+    const 标题映射 = 创建_目录标题映射(目录);
+    const 构建Promise = (async (): Promise<章节文本缓存项[]> => {
+      const 缓存: 章节文本缓存项[] = [];
+      const 并发数 = 12;
+      设置索引进度({ 已完成: 0, 总数: 章节列表.length });
+
+      for (let 起点 = 0; 起点 < 章节列表.length; 起点 += 并发数) {
+        if (
+          当前加载轮次 !== 加载轮次引用.current
+          || 压缩包 !== 压缩包引用.current
+        ) {
+          throw new Error('全文检索已取消');
+        }
+
+        const 当前批次 = 章节列表.slice(起点, 起点 + 并发数);
+        const 批次结果 = await Promise.all(当前批次.map(async (章节路径) => {
+          const 章节文件 = 查找_压缩包文件(压缩包, 章节路径);
+          if (!章节文件) {
+            console.warn(`全文检索跳过缺失章节: ${章节路径}`);
+            return {
+              路径: 章节路径,
+              标题: 获取_缓存章节标题(章节路径, 标题映射),
+              正文: ''
+            };
+          }
+
+          try {
+            const 原始内容 = await 章节文件.async('string');
+            return {
+              路径: 章节路径,
+              标题: 获取_缓存章节标题(章节路径, 标题映射),
+              正文: 提取_章节正文(原始内容)
+            };
+          } catch (错误) {
+            console.warn(`全文检索无法读取章节: ${章节路径}`, 错误);
+            return {
+              路径: 章节路径,
+              标题: 获取_缓存章节标题(章节路径, 标题映射),
+              正文: ''
+            };
+          }
+        }));
+
+        缓存.push(...批次结果);
+        设置索引进度({
+          已完成: Math.min(起点 + 批次结果.length, 章节列表.length),
+          总数: 章节列表.length
+        });
+        await new Promise<void>((解决) => window.setTimeout(解决, 0));
+      }
+
+      if (当前加载轮次 !== 加载轮次引用.current) {
+        throw new Error('全文检索已取消');
+      }
+      章节文本缓存引用.current = 缓存;
+      return 缓存;
+    })();
+
+    索引构建Promise引用.current = 构建Promise;
+    try {
+      return await 构建Promise;
+    } finally {
+      if (索引构建Promise引用.current === 构建Promise) {
+        索引构建Promise引用.current = null;
+      }
+    }
+  }, [目录]);
+
+  const 执行_全文搜索 = useCallback(async (事件?: React.FormEvent) => {
+    事件?.preventDefault();
+    const 关键词 = 搜索关键词.trim();
+    if (!关键词 || 正在搜索) return;
+
+    const 当前搜索轮次 = ++搜索轮次引用.current;
+    const 当前加载轮次 = 加载轮次引用.current;
+    设置正在搜索(true);
+    设置搜索错误(null);
+    设置已提交关键词(关键词);
+    设置搜索结果([]);
+    设置搜索结果总数(0);
+    设置待定位搜索(null);
+
+    try {
+      const 缓存 = await 确保_章节文本缓存(当前加载轮次);
+      if (
+        当前搜索轮次 !== 搜索轮次引用.current
+        || 当前加载轮次 !== 加载轮次引用.current
+      ) return;
+
+      const 结果列表: 全文检索结果[] = [];
+      let 结果总数 = 0;
+
+      for (const 章节 of 缓存) {
+        const 正则 = 创建_搜索正则(关键词);
+        let 章节内匹配序号 = 0;
+        let 匹配结果 = 正则.exec(章节.正文);
+
+        while (匹配结果) {
+          const 匹配长度 = 匹配结果[0].length;
+          if (匹配长度 > 0) {
+            结果总数 += 1;
+            if (结果列表.length < 最大搜索结果数) {
+              const { 片段, 片段匹配起点 } = 创建_搜索片段(
+                章节.正文,
+                匹配结果.index,
+                匹配长度
+              );
+              结果列表.push({
+                标识: `${章节.路径}::${章节内匹配序号}::${匹配结果.index}`,
+                章节路径: 章节.路径,
+                章节标题: 章节.标题,
+                关键词,
+                匹配序号: 章节内匹配序号,
+                匹配位置: 匹配结果.index,
+                匹配长度,
+                片段,
+                片段匹配起点
+              });
+            }
+            章节内匹配序号 += 1;
+          } else {
+            正则.lastIndex += 1;
+          }
+          匹配结果 = 正则.exec(章节.正文);
+        }
+      }
+
+      if (当前搜索轮次 !== 搜索轮次引用.current) return;
+      设置搜索结果(结果列表);
+      设置搜索结果总数(结果总数);
+    } catch (错误) {
+      if (当前搜索轮次 !== 搜索轮次引用.current) return;
+      console.error('全文检索失败:', 错误);
+      设置搜索错误(错误 instanceof Error ? 错误.message : '全文检索失败');
+    } finally {
+      if (当前搜索轮次 === 搜索轮次引用.current) {
+        设置正在搜索(false);
+        设置索引进度(null);
+      }
+    }
+  }, [搜索关键词, 正在搜索, 确保_章节文本缓存]);
+
   const 加载_章节内容 = useCallback(async (
     目标路径: string,
-    锚点: string = ''
+    锚点: string = '',
+    搜索定位: 全文检索结果 | null = null
   ): Promise<boolean> => {
     const 压缩包 = 压缩包引用.current;
     const 实际章节路径 = 查找_可用章节路径(目标路径);
@@ -1053,6 +1435,7 @@ const Epub阅读器: React.FC = () => {
       设置章节内容(处理后内容);
       设置当前章节路径(实际章节路径);
       设置待定位锚点(锚点);
+      设置待定位搜索(搜索定位);
       设置定位版本((版本) => 版本 + 1);
       return true;
     } catch (错误) {
@@ -1069,11 +1452,26 @@ const Epub阅读器: React.FC = () => {
 
     if (获取_路径键(目标路径) === 获取_路径键(当前章节路径)) {
       设置待定位锚点(锚点);
+      设置待定位搜索(null);
       设置定位版本((版本) => 版本 + 1);
       return;
     }
 
     await 加载_章节内容(目标路径, 锚点);
+  }, [当前章节路径, 加载_章节内容, 查找_可用章节路径]);
+
+  const 跳转_搜索结果 = useCallback(async (搜索结果项: 全文检索结果) => {
+    const 目标路径 = 查找_可用章节路径(搜索结果项.章节路径);
+    if (!目标路径) return;
+
+    if (获取_路径键(目标路径) === 获取_路径键(当前章节路径)) {
+      设置待定位锚点('');
+      设置待定位搜索(搜索结果项);
+      设置定位版本((版本) => 版本 + 1);
+      return;
+    }
+
+    await 加载_章节内容(目标路径, '', 搜索结果项);
   }, [当前章节路径, 加载_章节内容, 查找_可用章节路径]);
 
   const 加载_EPUB = useCallback(async () => {
@@ -1084,6 +1482,7 @@ const Epub阅读器: React.FC = () => {
     }
 
     const 当前轮次 = ++加载轮次引用.current;
+    搜索轮次引用.current += 1;
     释放_资源地址();
     设置正在加载(true);
     设置错误信息(null);
@@ -1091,8 +1490,19 @@ const Epub阅读器: React.FC = () => {
     设置章节内容('');
     设置当前章节路径('');
     设置待定位锚点('');
+    设置待定位搜索(null);
+    设置侧栏模式('目录');
+    设置搜索关键词('');
+    设置已提交关键词('');
+    设置正在搜索(false);
+    设置搜索结果([]);
+    设置搜索结果总数(0);
+    设置索引进度(null);
+    设置搜索错误(null);
     压缩包引用.current = null;
     章节路径引用.current = [];
+    章节文本缓存引用.current = null;
+    索引构建Promise引用.current = null;
 
     try {
       const 响应 = await fetch(`${API_BASE}/search-id?bookID=${bookID}`);
@@ -1179,6 +1589,7 @@ const Epub阅读器: React.FC = () => {
     void 加载_EPUB();
     return () => {
       加载轮次引用.current += 1;
+      搜索轮次引用.current += 1;
       释放_资源地址();
     };
   }, [加载_EPUB, 释放_资源地址]);
@@ -1207,6 +1618,16 @@ const Epub阅读器: React.FC = () => {
 
     let 第二次定位: number | undefined;
     const 定位 = () => {
+      清除_搜索高亮(阅读区);
+
+      if (
+        待定位搜索
+        && 获取_路径键(待定位搜索.章节路径) === 获取_路径键(当前章节路径)
+        && 定位_搜索结果(阅读区, 待定位搜索)
+      ) {
+        return;
+      }
+
       if (!待定位锚点) {
         阅读区.scrollTop = 0;
         return;
@@ -1230,7 +1651,7 @@ const Epub阅读器: React.FC = () => {
       cancelAnimationFrame(第一帧);
       if (第二次定位) window.clearTimeout(第二次定位);
     };
-  }, [章节内容, 待定位锚点, 定位版本]);
+  }, [章节内容, 当前章节路径, 待定位锚点, 待定位搜索, 定位版本]);
 
   if (正在加载) {
     return (
@@ -1317,6 +1738,13 @@ const Epub阅读器: React.FC = () => {
           max-width: 100%;
           height: auto;
         }
+
+        mark[data-epub-search="true"] {
+          color: inherit;
+          background-color: #ffd54f;
+          border-radius: 2px;
+          scroll-margin-top: 30px;
+        }
       `}</style>
       <div style={{
         display: 'flex',
@@ -1382,25 +1810,191 @@ const Epub阅读器: React.FC = () => {
 
       <div style={{ position: 'relative', display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <div style={{
-          width: '250px',
+          width: '320px',
           backgroundColor: '#f9f9f9',
           borderRight: '1px solid #ddd',
           overflowY: 'auto',
           padding: '15px',
           flexShrink: 0
         }}>
-          <h3 style={{ marginTop: 0, color: '#333', borderBottom: '1px solid #ddd', paddingBottom: '8px' }}>
-            目录
-          </h3>
-          {目录.length > 0 ? (
-            <目录节点列表
-              项目列表={目录}
-              当前章节键={当前章节键}
-              层级={0}
-              选择目录={(链接) => void 跳转_章节(链接)}
-            />
+          <div style={{
+            display: 'flex',
+            gap: '4px',
+            padding: '3px',
+            marginBottom: '15px',
+            backgroundColor: '#eceff1',
+            borderRadius: '6px'
+          }}>
+            <button
+              type="button"
+              onClick={() => 设置侧栏模式('目录')}
+              style={{
+                flex: 1,
+                padding: '7px 10px',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                color: 侧栏模式 === '目录' ? '#1a73e8' : '#555',
+                backgroundColor: 侧栏模式 === '目录' ? 'white' : 'transparent',
+                fontWeight: 侧栏模式 === '目录' ? 600 : 400,
+                boxShadow: 侧栏模式 === '目录' ? '0 1px 3px rgba(0, 0, 0, 0.12)' : 'none'
+              }}
+            >
+              目录
+            </button>
+            <button
+              type="button"
+              onClick={() => 设置侧栏模式('搜索')}
+              style={{
+                flex: 1,
+                padding: '7px 10px',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                color: 侧栏模式 === '搜索' ? '#1a73e8' : '#555',
+                backgroundColor: 侧栏模式 === '搜索' ? 'white' : 'transparent',
+                fontWeight: 侧栏模式 === '搜索' ? 600 : 400,
+                boxShadow: 侧栏模式 === '搜索' ? '0 1px 3px rgba(0, 0, 0, 0.12)' : 'none'
+              }}
+            >
+              全文搜索
+            </button>
+          </div>
+
+          {侧栏模式 === '目录' ? (
+            目录.length > 0 ? (
+              <目录节点列表
+                项目列表={目录}
+                当前章节键={当前章节键}
+                层级={0}
+                选择目录={(链接) => void 跳转_章节(链接)}
+              />
+            ) : (
+              <p style={{ color: '#777' }}>暂无目录</p>
+            )
           ) : (
-            <p style={{ color: '#777' }}>暂无目录</p>
+            <div>
+              <form onSubmit={(事件) => void 执行_全文搜索(事件)}>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <input
+                    type="search"
+                    value={搜索关键词}
+                    onChange={(事件) => 设置搜索关键词(事件.target.value)}
+                    placeholder="搜索本书内容"
+                    aria-label="搜索本书内容"
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      padding: '8px 9px',
+                      border: '1px solid #ccc',
+                      borderRadius: '4px',
+                      fontSize: '0.9rem',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!搜索关键词.trim() || 正在搜索}
+                    style={{
+                      padding: '8px 12px',
+                      border: 'none',
+                      borderRadius: '4px',
+                      color: 'white',
+                      backgroundColor: !搜索关键词.trim() || 正在搜索 ? '#aaa' : '#4285f4',
+                      cursor: !搜索关键词.trim() || 正在搜索 ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    {正在搜索 ? '检索中' : '搜索'}
+                  </button>
+                </div>
+              </form>
+
+              {正在搜索 && (
+                <div style={{ marginTop: '12px', color: '#555', fontSize: '0.85rem' }}>
+                  <div>
+                    {索引进度
+                      ? `正在提取章节文本 ${索引进度.已完成}/${索引进度.总数}`
+                      : '正在检索缓存文本...'
+                    }
+                  </div>
+                  {索引进度 && (
+                    <div style={{
+                      height: '4px',
+                      marginTop: '7px',
+                      overflow: 'hidden',
+                      backgroundColor: '#ddd',
+                      borderRadius: '2px'
+                    }}>
+                      <div style={{
+                        width: `${Math.round(索引进度.已完成 / Math.max(索引进度.总数, 1) * 100)}%`,
+                        height: '100%',
+                        backgroundColor: '#4285f4',
+                        transition: 'width 0.15s ease'
+                      }}></div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {搜索错误 && (
+                <p style={{ marginTop: '12px', color: '#c5221f', fontSize: '0.85rem' }}>
+                  {搜索错误}
+                </p>
+              )}
+
+              {!正在搜索 && !搜索错误 && 已提交关键词 && (
+                <div style={{ marginTop: '12px', color: '#666', fontSize: '0.85rem' }}>
+                  {搜索结果总数 > 0
+                    ? `共找到 ${搜索结果总数} 处匹配`
+                    : `未找到“${已提交关键词}”`
+                  }
+                  {搜索结果总数 > 最大搜索结果数 && (
+                    <span>{`，显示前 ${最大搜索结果数} 条`}</span>
+                  )}
+                </div>
+              )}
+
+              {!正在搜索 && 搜索结果.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
+                  {搜索结果.map((结果, 索引) => {
+                    const 是否当前结果 = 待定位搜索?.标识 === 结果.标识;
+                    return (
+                      <button
+                        type="button"
+                        key={结果.标识}
+                        onClick={() => void 跳转_搜索结果(结果)}
+                        title="跳转到该位置"
+                        style={{
+                          width: '100%',
+                          padding: '9px 10px',
+                          textAlign: 'left',
+                          border: 是否当前结果 ? '1px solid #4285f4' : '1px solid #ddd',
+                          borderRadius: '5px',
+                          cursor: 'pointer',
+                          backgroundColor: 是否当前结果 ? '#e8f0fe' : 'white',
+                          color: '#444'
+                        }}
+                      >
+                        <div style={{
+                          marginBottom: '5px',
+                          overflow: 'hidden',
+                          color: 是否当前结果 ? '#1a73e8' : '#555',
+                          fontSize: '0.85rem',
+                          fontWeight: 600,
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          {`${索引 + 1}. ${结果.章节标题}`}
+                        </div>
+                        <div style={{ fontSize: '0.82rem', lineHeight: 1.5, wordBreak: 'break-word' }}>
+                          {渲染_搜索片段(结果)}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           )}
         </div>
 
