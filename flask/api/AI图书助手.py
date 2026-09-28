@@ -68,6 +68,7 @@ def 获取_模型配置():
         '超时秒数': int(配置.get('超时秒数') or 120),
         '最大图片数量': int(配置.get('最大图片数量') or 6),
         '最大单图字节': int(配置.get('最大单图字节') or 8 * 1024 * 1024),
+        '最大请求字节': int(配置.get('最大请求字节') or 32 * 1024 * 1024),
         '最大输出token数': int(
             配置.get('最大输出token数')
             or 配置.get('最大输出字符数')
@@ -189,9 +190,13 @@ def 调用_模型(系统提示词, 用户提示词, 图片列表=None, 温度=No
         if 配置['思考模式'] == 'enabled':
             请求体['reasoning_effort'] = 配置['思考强度'] or 'low'
 
+    请求数据 = json.dumps(请求体, ensure_ascii=False).encode('utf-8')
+    if len(请求数据) > 配置['最大请求字节']:
+        raise RuntimeError('模型请求体超过配置的最大请求字节')
+
     请求 = urllib.request.Request(
         配置['接口地址'],
-        data=json.dumps(请求体, ensure_ascii=False).encode('utf-8'),
+        data=请求数据,
         headers={
             'Authorization': f"Bearer {配置['密钥']}",
             'Content-Type': 'application/json; charset=utf-8',

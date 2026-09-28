@@ -71,8 +71,10 @@ def 加载_配置文件(app):
             os.path.dirname(os.path.abspath(__file__)),
             '提示词',
         )
-        app.config['MAX_CONTENT_LENGTH'] = int(
-            app.config['大语言模型'].get('最大请求字节') or 32 * 1024 * 1024
+        上传配置 = config.get('资源', {}).get('上传', {})
+        最大上传请求字节 = 上传配置.get('最大请求字节')
+        app.config['MAX_CONTENT_LENGTH'] = (
+            int(最大上传请求字节) if 最大上传请求字节 else None
         )
 
         # 加载服务器配置（增加默认值）
@@ -92,7 +94,7 @@ def 加载_配置文件(app):
         app.config['数据库文件'] = '元数据.db'
         app.config['大语言模型'] = {}
         app.config['提示词目录'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), '提示词')
-        app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
+        app.config['MAX_CONTENT_LENGTH'] = None
         app.config['服务器地址'] = '0.0.0.0'
         app.config['服务器端口'] = 5000
         app.config['排障模式'] = False
@@ -104,7 +106,7 @@ def 加载_配置文件(app):
         app.config['数据库文件'] = '元数据.db'
         app.config['大语言模型'] = {}
         app.config['提示词目录'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), '提示词')
-        app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
+        app.config['MAX_CONTENT_LENGTH'] = None
         app.config['服务器地址'] = '0.0.0.0'
         app.config['服务器端口'] = 5000
         app.config['排障模式'] = False
